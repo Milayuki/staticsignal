@@ -1,21 +1,24 @@
 // ============================================
-// STATIC SIGNAL — GAME ENGINE
+// STATIC SIGNAL — GAME ENGINE v2
+// Beat-synced notes + real beat detection
 // ============================================
 
 const Game = (() => {
 
-  // ---- STATE ----
   const state = {
     selectedSong: null,
     selectedDiff: 'normal',
     audioCtx: null,
-    audioBuffer: null,
+    audioBuffer: null,      // buffer for playback
+    userAudioBuffer: null,  // user upload buffer (preserved)
     audioSource: null,
     startTime: 0,
     pauseOffset: 0,
     playing: false,
     paused: false,
-    notes: [],
+    notes: [],              // { col, beatTime, y, hit, missed }
+    beatmap: [],            // pre-generated: { col, time } in seconds
+    beatmapIndex: 0,        // next note to spawn from beatmap
     score: 0,
     combo: 0,
     maxCombo: 0,
@@ -26,7 +29,6 @@ const Game = (() => {
     keyDown: [false,false,false,false],
     animId: null,
     lastTime: null,
-    noteTimer: 0,
     particles: [],
     judgmentTimer: 0,
     cntPerfect: 0,
@@ -35,71 +37,261 @@ const Game = (() => {
     cntMiss: 0,
     gauges: { signal: 0, echo: 0, static: 0 },
     selectedCards: [],
-    postFeedMessages: [],
     records: [],
     dialogueStep: 0,
-    userTrack: null,
     userTrackName: '',
+    analyzing: false,
   };
 
-  // ---- BUILT-IN SONGS ----
   const SONGS = [
-    { id: 'song01', title: 'DEAD AIR', artist: 'STATIC feat. ◈◈◈', bpm: 172, demo: true, badge: 'SIGNAL' },
-    { id: 'song02', title: 'ROOM 404', artist: 'anonymous_freq', bpm: 148, demo: true, badge: 'CHILL' },
-    { id: 'song03', title: 'FREQUENCY 999', artist: 'STATIC & The Void', bpm: 196, demo: true, badge: 'CHAOS' },
+    { id: 'song01', title: 'DEAD AIR',       artist: 'STATIC feat. ◈◈◈',    bpm: 172, badge: 'SIGNAL' },
+    { id: 'song02', title: 'ROOM 404',        artist: 'anonymous_freq',       bpm: 148, badge: 'CHILL'  },
+    { id: 'song03', title: 'FREQUENCY 999',   artist: 'STATIC & The Void',    bpm: 196, badge: 'CHAOS'  },
   ];
 
-  // ---- DIALOGUES (оригинальный нарратив: STATIC) ----
   const DIALOGUES = [
-    { char: 'STATIC', emoji: '📻', text: 'Опять этот звук. Как будто кто-то пытается достучаться сквозь помехи.' },
-    { char: 'STATIC', emoji: '📻', text: 'Я живу в комнате без окон. Слушаю радиошум. Записываю то, что слышу.' },
-    { char: '◈◈◈', emoji: '🌀', text: 'Ты слышишь меня? Хорошо. Передай это дальше. Они должны знать.' },
-    { char: '◈◈◈', emoji: '🌀', text: 'Играй ритм. Публикуй сигнал. Шкала трансляции должна достичь 100%.' },
-    { char: 'STATIC', emoji: '🫥', text: '...Кому это нужно? Но я всё равно продолжу. Мне всё равно больше нечем заняться.' },
-    { char: 'STATIC', emoji: '🫥', text: 'Если шкала заполнится — сигнал выйдет за пределы. Что-то изменится.' },
-    { char: 'СИСТЕМА', emoji: '📡', text: '[ НЕСУЩАЯ ЧАСТОТА ОБНАРУЖЕНА. НАЧАЛО ТРАНСЛЯЦИИ. ]' },
+    { char: 'STATIC',   emoji: '📻', text: 'Опять этот звук. Как будто кто-то пытается достучаться сквозь помехи.' },
+    { char: 'STATIC',   emoji: '📻', text: 'Я живу в комнате без окон. Слушаю радиошум. Записываю то, что слышу.' },
+    { char: '◈◈◈',     emoji: '🌀', text: 'Ты слышишь меня? Хорошо. Передай это дальше. Они должны знать.' },
+    { char: '◈◈◈',     emoji: '🌀', text: 'Играй ритм. Публикуй сигнал. Шкала трансляции должна достичь 100%.' },
+    { char: 'STATIC',   emoji: '🫥', text: '...Кому это нужно? Но я всё равно продолжу. Мне всё равно больше нечем заняться.' },
+    { char: 'STATIC',   emoji: '🫥', text: 'Если шкала заполнится — сигнал выйдет за пределы. Что-то изменится.' },
+    { char: 'СИСТЕМА',  emoji: '📡', text: '[ НЕСУЩАЯ ЧАСТОТА ОБНАРУЖЕНА. НАЧАЛО ТРАНСЛЯЦИИ. ]' },
   ];
 
-  // ---- CARDS POOL ----
   const CARDS_POOL = [
-    { type: 'signal', emoji: '📻', text: 'Записать сигнал на кассету', gain: '+12% SIGNAL', gv: 12, tclass: 't-doki' },
-    { type: 'signal', emoji: '🎙', text: 'Провести ночную трансляцию в эфире', gain: '+8% SIGNAL', gv: 8, tclass: 't-doki' },
-    { type: 'echo', emoji: '💜', text: 'Опубликовать расшифровку помех', gain: '+15% ECHO', gv: 15, tclass: 't-yun' },
-    { type: 'echo', emoji: '🌀', text: 'Разослать координаты частоты по форумам', gain: '+10% ECHO', gv: 10, tclass: 't-yun' },
-    { type: 'broadcast', emoji: '📡', text: 'Массовая рассылка сигнала', gain: '+18% BROADCAST', gv: 18, tclass: 't-hype' },
-    { type: 'broadcast', emoji: '🌐', text: 'Взломать частоту государственного вещания', gain: '+12% BROADCAST', gv: 12, tclass: 't-hype' },
-    { type: 'gold', emoji: '⭐', text: 'Чистый сигнал из пустоты', gain: '+25% ALL', gv: 25, tclass: 't-gold', gold: true },
-    { type: 'gold', emoji: '✨', text: 'Резонанс на всех частотах', gain: '+20% ALL', gv: 20, tclass: 't-gold', gold: true },
-    { type: 'signal', emoji: '🍵', text: 'Провести ещё одну ночь за приёмником', gain: '+6% SIGNAL', gv: 6, tclass: 't-doki' },
-    { type: 'echo', emoji: '👁', text: 'Написать анонимный манифест помех', gain: '+14% ECHO', gv: 14, tclass: 't-yun' },
-    { type: 'broadcast', emoji: '🔥', text: 'Устроить акцию на радиорынке', gain: '+10% BROADCAST', gv: 10, tclass: 't-hype' },
-    { type: 'signal', emoji: '🖤', text: 'Записать письмо в пустоту', gain: '+9% SIGNAL', gv: 9, tclass: 't-doki' },
+    { type: 'signal',    emoji: '📻', text: 'Записать сигнал на кассету',              gain: '+12% SIGNAL',    gv: 12, tclass: 't-doki' },
+    { type: 'signal',    emoji: '🎙', text: 'Провести ночную трансляцию',              gain: '+8% SIGNAL',     gv: 8,  tclass: 't-doki' },
+    { type: 'echo',      emoji: '💜', text: 'Опубликовать расшифровку помех',           gain: '+15% ECHO',      gv: 15, tclass: 't-yun'  },
+    { type: 'echo',      emoji: '🌀', text: 'Разослать координаты частоты по форумам', gain: '+10% ECHO',      gv: 10, tclass: 't-yun'  },
+    { type: 'broadcast', emoji: '📡', text: 'Массовая рассылка сигнала',               gain: '+18% BROADCAST', gv: 18, tclass: 't-hype' },
+    { type: 'broadcast', emoji: '🌐', text: 'Взломать частоту государственного вещания',gain:'+12% BROADCAST', gv: 12, tclass: 't-hype' },
+    { type: 'gold',      emoji: '⭐', text: 'Чистый сигнал из пустоты',                gain: '+25% ALL',       gv: 25, tclass: 't-gold', gold: true },
+    { type: 'gold',      emoji: '✨', text: 'Резонанс на всех частотах',               gain: '+20% ALL',       gv: 20, tclass: 't-gold', gold: true },
+    { type: 'signal',    emoji: '🍵', text: 'Ещё одна ночь за приёмником',             gain: '+6% SIGNAL',     gv: 6,  tclass: 't-doki' },
+    { type: 'echo',      emoji: '👁', text: 'Написать анонимный манифест помех',        gain: '+14% ECHO',      gv: 14, tclass: 't-yun'  },
+    { type: 'broadcast', emoji: '🔥', text: 'Устроить акцию на радиорынке',            gain: '+10% BROADCAST', gv: 10, tclass: 't-hype' },
+    { type: 'signal',    emoji: '🖤', text: 'Записать письмо в пустоту',               gain: '+9% SIGNAL',     gv: 9,  tclass: 't-doki' },
   ];
 
-  // ---- POST FEED MESSAGES ----
   const POST_MSGS = [
-    ['freq_listener', 'кто ещё слышит этот звук на 87.6?'],
-    ['user_x99', 'этот сигнал изменил что-то в моей голове...'],
-    ['static_enjoyer', '◈◈◈'],
-    ['room404', 'мама думает я сплю'],
-    ['signal_found', 'ЧАСТОТА ПРИНЯТА'],
-    ['anonymous', 'это реально. передайте дальше.'],
-    ['void_listener', 'слышу помехи уже три ночи подряд'],
-    ['freq_cult', 'присоединяйтесь к трансляции ◈'],
-    ['deadair_fan', '404% шума'],
-    ['nightbroadcast', 'почему я плачу слушая белый шум в 4 утра'],
+    ['freq_listener',   'кто ещё слышит этот звук на 87.6?'],
+    ['user_x99',        'этот сигнал изменил что-то в моей голове...'],
+    ['static_enjoyer',  '◈◈◈'],
+    ['room404',         'мама думает я сплю'],
+    ['signal_found',    'ЧАСТОТА ПРИНЯТА'],
+    ['anonymous',       'это реально. передайте дальше.'],
+    ['void_listener',   'слышу помехи уже три ночи подряд'],
+    ['freq_cult',       'присоединяйтесь к трансляции ◈'],
+    ['deadair_fan',     '404% шума'],
+    ['nightbroadcast',  'почему я плачу слушая белый шум в 4 утра'],
   ];
 
-  // ---- SCREEN MANAGEMENT ----
+  // ============================================================
+  // BEATMAP GENERATION — demo songs (BPM-exact)
+  // ============================================================
+  function generateBeatmapFromBPM(bpm, durationSec, diff) {
+    const beatmap = [];
+    const beatLen  = 60 / bpm;           // seconds per beat
+    const subdivision = diff === 'nolifer' ? 0.5 : diff === 'hardcore' ? 1 : 1; // half-beats for nolifer
+    const step = beatLen * subdivision;
+
+    // pattern probabilities per difficulty
+    const density = { normal: 0.65, hardcore: 0.80, nolifer: 0.92 }[diff] || 0.65;
+    // chord (2 notes same time) probability
+    const chordChance = { normal: 0.05, hardcore: 0.18, nolifer: 0.30 }[diff] || 0.05;
+
+    let t = 0.5; // start 0.5s in so player has time
+    let lastCol = -1;
+    const rng = mulberry32(12345); // deterministic per song
+
+    while (t < durationSec - 1) {
+      if (rng() < density) {
+        let col = Math.floor(rng() * 4);
+        // avoid same column back-to-back on normal
+        if (diff === 'normal' && col === lastCol) col = (col + 1) % 4;
+        beatmap.push({ col, time: t });
+        lastCol = col;
+
+        // chord second note
+        if (rng() < chordChance) {
+          let col2 = (col + 2) % 4; // opposite side
+          beatmap.push({ col: col2, time: t });
+        }
+      }
+      t += step;
+    }
+    return beatmap;
+  }
+
+  // ============================================================
+  // BEAT DETECTION — for user uploaded audio
+  // Uses onset detection via energy flux on sub-bands
+  // ============================================================
+  async function detectBeatsFromBuffer(audioBuffer, diff) {
+    const sr        = audioBuffer.sampleRate;
+    const numCh     = audioBuffer.numberOfChannels;
+    const duration  = audioBuffer.duration;
+
+    // Mix to mono
+    const monoLen = audioBuffer.length;
+    const mono    = new Float32Array(monoLen);
+    for (let ch = 0; ch < numCh; ch++) {
+      const data = audioBuffer.getChannelData(ch);
+      for (let i = 0; i < monoLen; i++) mono[i] += data[i] / numCh;
+    }
+
+    // Hop-based energy analysis
+    const hopSize    = Math.floor(sr * 0.01);  // 10ms hops
+    const winSize    = Math.floor(sr * 0.04);  // 40ms window
+    const numFrames  = Math.floor((monoLen - winSize) / hopSize);
+
+    // Split into 3 sub-bands: bass (0-200Hz), mid (200-2kHz), hi (2k-8kHz)
+    // We approximate using FFT-like energy via a simple filter bank
+    // Simple approach: compute RMS energy in each hop + detect peaks
+
+    const energies = new Float32Array(numFrames);
+    for (let f = 0; f < numFrames; f++) {
+      const start = f * hopSize;
+      let e = 0;
+      for (let i = start; i < start + winSize && i < monoLen; i++) {
+        e += mono[i] * mono[i];
+      }
+      energies[f] = Math.sqrt(e / winSize);
+    }
+
+    // Onset detection: energy flux (positive derivative)
+    const flux = new Float32Array(numFrames);
+    for (let f = 1; f < numFrames; f++) {
+      const d = energies[f] - energies[f-1];
+      flux[f] = d > 0 ? d : 0;
+    }
+
+    // Adaptive threshold: local mean + offset
+    const winFrames = Math.floor(0.4 / 0.01); // 400ms window
+    const threshold = new Float32Array(numFrames);
+    for (let f = 0; f < numFrames; f++) {
+      let sum = 0, cnt = 0;
+      const lo = Math.max(0, f - winFrames);
+      const hi = Math.min(numFrames, f + winFrames);
+      for (let j = lo; j < hi; j++) { sum += flux[j]; cnt++; }
+      threshold[f] = (sum / cnt) * 1.5 + 0.002;
+    }
+
+    // Pick peaks above threshold with min spacing
+    const density    = { normal: 0.65, hardcore: 0.80, nolifer: 1.0 }[diff] || 0.65;
+    const minSpaceSec = { normal: 0.28, hardcore: 0.18, nolifer: 0.13 }[diff] || 0.28;
+    const minSpaceFrames = Math.floor(minSpaceSec / 0.01);
+
+    const onsets = [];
+    let lastOnset = -9999;
+    for (let f = 1; f < numFrames - 1; f++) {
+      if (flux[f] > threshold[f] &&
+          flux[f] > flux[f-1] &&
+          flux[f] >= flux[f+1] &&
+          f - lastOnset > minSpaceFrames) {
+        if (Math.random() < density) {
+          const timeSec = (f * hopSize) / sr;
+          onsets.push(timeSec);
+          lastOnset = f;
+        }
+      }
+    }
+
+    // Convert onsets → beatmap with column assignment
+    const beatmap = [];
+    const chordChance = { normal: 0.04, hardcore: 0.15, nolifer: 0.28 }[diff] || 0.04;
+    let lastCol = -1;
+    const rng = mulberry32(99991);
+
+    for (const t of onsets) {
+      if (t < 0.3 || t > duration - 0.5) continue;
+      let col = Math.floor(rng() * 4);
+      if (diff === 'normal' && col === lastCol) col = (col + 1) % 4;
+      beatmap.push({ col, time: t });
+      lastCol = col;
+      if (rng() < chordChance) {
+        beatmap.push({ col: (col + 2) % 4, time: t });
+      }
+    }
+
+    // Sort by time (should be already, but just in case)
+    beatmap.sort((a, b) => a.time - b.time);
+    return beatmap;
+  }
+
+  // Simple seeded RNG (Mulberry32)
+  function mulberry32(seed) {
+    return function() {
+      seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+      let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  // ============================================================
+  // DEMO AUDIO GENERATOR — tighter, punchier
+  // ============================================================
+  async function generateDemoAudio(songId) {
+    const ctx = state.audioCtx;
+    const bpmMap = { song01: 172, song02: 148, song03: 196 };
+    const bpm = bpmMap[songId] || 172;
+    const duration = 90;
+    const sr = ctx.sampleRate;
+    const buf = ctx.createBuffer(2, sr * duration, sr);
+    const beatLen = 60 / bpm;
+
+    const melodies = {
+      song01: [440, 494, 523, 587, 659, 587, 523, 494],
+      song02: [330, 370, 392, 440, 415, 392, 370, 330],
+      song03: [880, 988, 1047, 1175, 1319, 1175, 988, 880],
+    };
+    const melody = melodies[songId] || melodies.song01;
+
+    for (let ch = 0; ch < 2; ch++) {
+      const data = buf.getChannelData(ch);
+      for (let i = 0; i < data.length; i++) {
+        const t = i / sr;
+        const beat = Math.floor(t / beatLen);
+        const beatPhase = (t % beatLen) / beatLen;
+
+        // Tight percussive envelope
+        const env = Math.exp(-beatPhase * 6);
+
+        const freq  = melody[beat % melody.length];
+        const freq2 = melody[(beat + 4) % melody.length];
+
+        // Kick-like thump on every beat (low sine, fast decay)
+        const kickEnv = Math.exp(-beatPhase * 18);
+        const kick = Math.sin(2 * Math.PI * 60 * t * (1 - beatPhase * 0.3)) * kickEnv * 0.4;
+
+        // Melody tone
+        const tone = Math.sin(2 * Math.PI * freq * t) * 0.20 * env
+                   + Math.sin(2 * Math.PI * freq2 * t * 0.5) * 0.07 * env;
+
+        // Hi-hat on off-beats (half beat)
+        const halfPhase = ((t + beatLen * 0.5) % beatLen) / beatLen;
+        const hhEnv = Math.exp(-halfPhase * 30);
+        const hihat = (Math.random() * 2 - 1) * hhEnv * 0.06;
+
+        data[i] = kick + tone + hihat;
+      }
+    }
+    return buf;
+  }
+
+  // ============================================================
+  // SCREEN MANAGEMENT
+  // ============================================================
   function showScreen(id) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     const el = document.getElementById(id);
     if (el) el.classList.add('active');
-
     if (id === 'screen-story-intro') startDialogue();
     if (id === 'screen-song-select') renderSongList();
-    if (id === 'screen-records') renderRecords();
-    if (id === 'screen-cards') renderCards();
+    if (id === 'screen-records')     renderRecords();
+    if (id === 'screen-cards')       renderCards();
   }
 
   // ---- DIALOGUE ----
@@ -109,21 +301,16 @@ const Game = (() => {
     document.getElementById('screen-story-intro').onclick = advanceDialogue;
     document.addEventListener('keydown', dialogueKeyHandler);
   }
-
   function dialogueKeyHandler(e) {
     if (e.code === 'Space') { e.preventDefault(); advanceDialogue(); }
   }
-
   function advanceDialogue() {
     state.dialogueStep++;
     if (state.dialogueStep >= DIALOGUES.length) {
       document.removeEventListener('keydown', dialogueKeyHandler);
       showScreen('screen-song-select');
-    } else {
-      renderDialogue();
-    }
+    } else { renderDialogue(); }
   }
-
   function renderDialogue() {
     const d = DIALOGUES[state.dialogueStep];
     document.getElementById('dialogue-char').textContent = d.char;
@@ -132,7 +319,6 @@ const Game = (() => {
     el.textContent = '';
     typeText(el, d.text, 0);
   }
-
   function typeText(el, text, i) {
     if (i <= text.length) {
       el.textContent = text.slice(0, i);
@@ -145,8 +331,9 @@ const Game = (() => {
     const list = document.getElementById('song-list');
     list.innerHTML = '';
     const songs = [...SONGS];
-    if (state.userTrack) {
-      songs.push({ id: 'user', title: state.userTrackName || 'Твой трек', artist: 'User Upload', bpm: '?', demo: false, badge: 'USER', user: true });
+    if (state.userAudioBuffer) {
+      songs.push({ id: 'user', title: state.userTrackName || 'Твой трек',
+                   artist: 'User Upload', bpm: '?', badge: 'USER', user: true });
     }
     songs.forEach(s => {
       const el = document.createElement('div');
@@ -169,13 +356,14 @@ const Game = (() => {
   }
 
   function updateGaugeDisplay() {
-    const { signal, echo, static: st } = state.gauges;
-    document.getElementById('g-doki').style.width = Math.min(100, signal) + '%';
-    document.getElementById('g-yun').style.width = Math.min(100, echo) + '%';
-    document.getElementById('g-denpa').style.width = Math.min(100, st) + '%';
+    const { signal, echo } = state.gauges;
+    const st = state.gauges.static;
+    document.getElementById('g-doki').style.width   = Math.min(100, signal) + '%';
+    document.getElementById('g-yun').style.width    = Math.min(100, echo) + '%';
+    document.getElementById('g-denpa').style.width  = Math.min(100, st) + '%';
     document.getElementById('pct-doki').textContent = Math.round(signal) + '%';
-    document.getElementById('pct-yun').textContent = Math.round(echo) + '%';
-    document.getElementById('pct-denpa').textContent = Math.round(st) + '%';
+    document.getElementById('pct-yun').textContent  = Math.round(echo) + '%';
+    document.getElementById('pct-denpa').textContent= Math.round(st) + '%';
   }
 
   // ---- FILE UPLOAD ----
@@ -183,13 +371,19 @@ const Game = (() => {
     const file = e.target.files[0];
     if (!file) return;
     if (!state.audioCtx) state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const ab = await file.arrayBuffer();
-    state.audioBuffer = await state.audioCtx.decodeAudioData(ab);
-    state.userTrack = state.audioBuffer;
-    state.userTrackName = file.name.replace(/\.[^.]+$/, '');
-    state.selectedSong = 'user';
     const zone = document.getElementById('upload-zone');
-    zone.querySelector('span:last-child').textContent = state.userTrackName;
+
+    zone.querySelector('span:last-child').textContent = '⏳ Анализ бита...';
+    zone.style.borderColor = 'var(--gold)';
+
+    const ab = await file.arrayBuffer();
+    const decoded = await state.audioCtx.decodeAudioData(ab);
+
+    state.userAudioBuffer = decoded;
+    state.userTrackName   = file.name.replace(/\.[^.]+$/, '');
+    state.selectedSong    = 'user';
+
+    zone.querySelector('span:last-child').textContent = '✓ ' + state.userTrackName;
     zone.style.borderColor = 'var(--cyan)';
     renderSongList();
   });
@@ -203,27 +397,47 @@ const Game = (() => {
     });
   });
 
-  // ---- START GAME ----
+  // ============================================================
+  // START GAME
+  // ============================================================
   async function startGame() {
     if (!state.selectedSong) { alert('Выбери трек!'); return; }
-
     if (!state.audioCtx) state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    // Resume context if suspended (browser autoplay policy)
     if (state.audioCtx.state === 'suspended') await state.audioCtx.resume();
 
-    if (state.selectedSong !== 'user') {
+    const btn = document.getElementById('play-btn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Загрузка...';
+
+    let beatmap;
+
+    if (state.selectedSong === 'user') {
+      // Use real user buffer + detect beats
+      state.audioBuffer = state.userAudioBuffer;
+      const zone = document.getElementById('upload-zone');
+      zone.querySelector('span:last-child').textContent = '⏳ Обнаружение битов...';
+      // Run beat detection (offload to microtask so UI updates)
+      await new Promise(r => setTimeout(r, 20));
+      beatmap = await detectBeatsFromBuffer(state.userAudioBuffer, state.selectedDiff);
+    } else {
+      const song = SONGS.find(s => s.id === state.selectedSong);
       state.audioBuffer = await generateDemoAudio(state.selectedSong);
+      beatmap = generateBeatmapFromBPM(song.bpm, state.audioBuffer.duration, state.selectedDiff);
     }
+
+    btn.disabled = false;
+    btn.textContent = '▶ ИГРАТЬ';
+
+    state.beatmap      = beatmap;
+    state.beatmapIndex = 0;
 
     resetGameState();
     showScreen('screen-game');
-
-    // Resize canvas after screen shown
     resizeCanvas();
 
     const diffMap = { normal: 5, hardcore: 7, nolifer: 9 };
     state.speed = diffMap[state.selectedDiff] || 5;
-    document.getElementById('speed-slider').value = state.speed;
+    document.getElementById('speed-slider').value   = state.speed;
     document.getElementById('speed-val').textContent = state.speed;
     document.getElementById('game-diff-label').textContent = state.selectedDiff.toUpperCase();
 
@@ -232,10 +446,10 @@ const Game = (() => {
     document.getElementById('game-track-name').textContent = songName;
 
     playAudio(0);
-    state.playing = true;
-    state.paused = false;
+    state.playing  = true;
+    state.paused   = false;
     state.lastTime = null;
-    state.animId = requestAnimationFrame(gameLoop);
+    state.animId   = requestAnimationFrame(gameLoop);
 
     document.getElementById('speed-slider').oninput = () => {
       state.speed = parseInt(document.getElementById('speed-slider').value);
@@ -244,55 +458,21 @@ const Game = (() => {
   }
 
   function resetGameState() {
-    state.notes = [];
-    state.score = 0;
-    state.combo = 0;
-    state.maxCombo = 0;
-    state.totalNotes = 0;
-    state.hitNotes = 0;
-    state.health = 100;
-    state.particles = [];
+    state.notes         = [];
+    state.beatmapIndex  = 0;
+    state.score         = 0;
+    state.combo         = 0;
+    state.maxCombo      = 0;
+    state.totalNotes    = 0;
+    state.hitNotes      = 0;
+    state.health        = 100;
+    state.particles     = [];
     state.judgmentTimer = 0;
-    state.noteTimer = 0;
-    state.cntPerfect = 0;
-    state.cntGreat = 0;
-    state.cntGood = 0;
-    state.cntMiss = 0;
-    state.postFeedMessages = [];
+    state.cntPerfect    = 0;
+    state.cntGreat      = 0;
+    state.cntGood       = 0;
+    state.cntMiss       = 0;
     updateGameUI();
-  }
-
-  // ---- DEMO AUDIO GENERATOR ----
-  async function generateDemoAudio(songId) {
-    const ctx = state.audioCtx;
-    const bpmMap = { song01: 172, song02: 148, song03: 196 };
-    const bpm = bpmMap[songId] || 170;
-    const duration = 90;
-    const buf = ctx.createBuffer(2, ctx.sampleRate * duration, ctx.sampleRate);
-
-    const patterns = {
-      song01: [440, 523, 659, 784, 659, 523, 440, 392],
-      song02: [330, 392, 440, 494, 440, 392, 330, 294],
-      song03: [880, 988, 1047, 1175, 1319, 1175, 1047, 988],
-    };
-    const melody = patterns[songId] || patterns.song01;
-    const beatLen = 60 / bpm;
-
-    for (let ch = 0; ch < 2; ch++) {
-      const data = buf.getChannelData(ch);
-      for (let i = 0; i < data.length; i++) {
-        const t = i / ctx.sampleRate;
-        const beat = Math.floor(t / beatLen);
-        const freq = melody[beat % melody.length];
-        const freq2 = melody[(beat + 3) % melody.length];
-        const env = Math.max(0, 1 - ((t % beatLen) / beatLen) * 2.5);
-        const staticNoise = (Math.random() * 2 - 1) * 0.015;
-        data[i] = Math.sin(2 * Math.PI * freq * t) * 0.22 * env
-                + Math.sin(2 * Math.PI * freq2 * t * 0.5) * 0.08 * env
-                + staticNoise;
-      }
-    }
-    return buf;
   }
 
   // ---- AUDIO ----
@@ -305,20 +485,23 @@ const Game = (() => {
     state.audioSource.connect(state.audioCtx.destination);
     state.audioSource.start(0, offset);
     state.startTime = state.audioCtx.currentTime - offset;
-    state.audioSource.onended = () => {
-      if (state.playing && !state.paused) endGame();
-    };
+    state.audioSource.onended = () => { if (state.playing && !state.paused) endGame(); };
   }
 
   function stopAudio() {
     if (state.audioSource) { try { state.audioSource.stop(); } catch(e){} state.audioSource = null; }
   }
 
+  function getAudioTime() {
+    if (!state.audioCtx) return 0;
+    return state.audioCtx.currentTime - state.startTime;
+  }
+
   // ---- PAUSE ----
   function pauseGame() {
     if (!state.playing || state.paused) return;
     state.paused = true;
-    state.pauseOffset = state.audioCtx ? state.audioCtx.currentTime - state.startTime : 0;
+    state.pauseOffset = getAudioTime();
     stopAudio();
     cancelAnimationFrame(state.animId);
     document.getElementById('pause-overlay').style.display = 'flex';
@@ -334,61 +517,81 @@ const Game = (() => {
   }
 
   function quitToMenu() {
-    state.playing = false;
-    state.paused = false;
+    state.playing = state.paused = false;
     stopAudio();
     cancelAnimationFrame(state.animId);
     document.getElementById('pause-overlay').style.display = 'none';
     showScreen('screen-song-select');
   }
 
-  // ---- CANVAS SETUP ----
+  // ---- CANVAS ----
   const canvas = document.getElementById('game-canvas');
-  const ctx2 = canvas.getContext('2d');
+  const ctx2   = canvas.getContext('2d');
 
   function resizeCanvas() {
     const parent = canvas.parentElement;
-    const h = Math.min(window.innerHeight, 700);
-    const w = Math.min(parent ? parent.clientWidth : 400, 420);
-    canvas.width = w;
-    canvas.height = h;
+    canvas.height = Math.min(window.innerHeight, 700);
+    canvas.width  = Math.min(parent ? parent.clientWidth : 400, 420);
   }
   resizeCanvas();
   window.addEventListener('resize', resizeCanvas);
 
-  const COLS = 4;
-  const NOTE_H = 22;
-  const colColors = ['#5090e0','#40c090','#40c090','#5090e0'];
-  const keyMap = { d: 0, f: 1, j: 2, k: 3 };
+  const COLS      = 4;
+  const NOTE_H    = 22;
+  const COL_CLR   = ['#5090e0','#40c090','#40c090','#5090e0'];
+  const keyMap    = { d: 0, f: 1, j: 2, k: 3 };
 
-  function getHitY() { return canvas.height - 90; }
-  function getColW() { return canvas.width / COLS; }
+  function getHitY()  { return canvas.height - 90; }
+  function getColW()  { return canvas.width / COLS; }
 
-  // ---- GAME LOOP ----
+  // How many pixels ahead of the hit-line a note spawns
+  // = travel distance so the note arrives exactly on time
+  function getTravelPx() {
+    // note speed in px/frame at 60fps
+    // speed slider 1-10, noteSpeed = speed * 2.8 px/frame
+    // we need it to arrive exactly when audio time == note.time
+    // We'll use canvas height as travel distance and pre-schedule
+    return canvas.height + NOTE_H;
+  }
+
+  // ============================================================
+  // GAME LOOP — time-based note scheduling
+  // ============================================================
   function gameLoop(ts) {
     if (!state.playing || state.paused) return;
     const dt = state.lastTime ? Math.min(ts - state.lastTime, 50) : 16;
     state.lastTime = ts;
 
-    const diffIntervals = { normal: 680, hardcore: 490, nolifer: 310 };
-    const interval = diffIntervals[state.selectedDiff] || 680;
+    const audioTime = getAudioTime();
+    const noteSpeed = state.speed * 2.8; // px per frame (at 60fps)
+    const HIT_Y     = getHitY();
 
-    state.noteTimer += dt;
-    if (state.noteTimer > interval) {
-      spawnNote();
-      if (state.selectedDiff !== 'normal' && Math.random() < 0.28) spawnNote();
-      state.noteTimer = 0;
+    // --- Schedule notes from beatmap ---
+    // A note at time T should spawn when:
+    //   audioTime = T - travelTime
+    //   travelTime = travelPx / (noteSpeed * 60) seconds
+    const travelPx  = HIT_Y + NOTE_H; // pixels from spawn to hit zone
+    const travelSec = travelPx / (noteSpeed * 60);
+
+    while (state.beatmapIndex < state.beatmap.length) {
+      const next = state.beatmap[state.beatmapIndex];
+      if (audioTime >= next.time - travelSec) {
+        // Spawn with y-position adjusted for exact timing
+        const overshoot = audioTime - (next.time - travelSec);
+        const startY    = -NOTE_H + overshoot * noteSpeed * 60;
+        state.notes.push({ col: next.col, time: next.time, y: startY, hit: false, missed: false });
+        state.totalNotes++;
+        state.beatmapIndex++;
+      } else { break; }
     }
 
-    const noteSpeed = state.speed * 2.8;
-    const HIT_Y = getHitY();
-
+    // --- Move notes ---
     for (const n of state.notes) {
       if (n.hit || n.missed) continue;
       n.y += noteSpeed * dt / 16;
-      if (n.y > HIT_Y + 70) {
+      if (n.y > HIT_Y + 80) {
         n.missed = true;
-        state.combo = 0;
+        state.combo  = 0;
         state.cntMiss++;
         state.health = Math.max(0, state.health - 10);
         showJudgment('MISS', '#e84040');
@@ -398,30 +601,29 @@ const Game = (() => {
     }
     state.notes = state.notes.filter(n => !(n.missed && n.y > canvas.height + 60));
 
+    // --- Particles ---
     state.particles = state.particles.filter(p => p.life > 0);
     for (const p of state.particles) {
-      p.x += p.vx; p.y += p.vy;
-      p.vy += 0.15;
-      p.life--;
+      p.x += p.vx; p.y += p.vy; p.vy += 0.15; p.life--;
     }
 
-    if (Math.random() < 0.004) addPostFeedMsg();
-
+    // --- Judgment fade ---
     if (state.judgmentTimer > 0) {
       state.judgmentTimer--;
-      if (state.judgmentTimer === 0) {
+      if (state.judgmentTimer === 0)
         document.getElementById('judgment-overlay').style.opacity = '0';
-      }
+    }
+
+    // --- Random post ---
+    if (Math.random() < 0.004) addPostFeedMsg();
+
+    // --- Check if beatmap exhausted (song still playing) ---
+    if (state.beatmapIndex >= state.beatmap.length && state.notes.length === 0) {
+      // Wait for audio to end naturally via onended
     }
 
     drawGame();
     state.animId = requestAnimationFrame(gameLoop);
-  }
-
-  function spawnNote() {
-    const col = Math.floor(Math.random() * COLS);
-    state.notes.push({ col, y: -NOTE_H, hit: false, missed: false });
-    state.totalNotes++;
   }
 
   // ---- DRAW ----
@@ -432,12 +634,10 @@ const Game = (() => {
     const HIT_Y = getHitY();
 
     ctx2.clearRect(0, 0, W, H);
-
-    // Background
     ctx2.fillStyle = '#0b0916';
     ctx2.fillRect(0, 0, W, H);
 
-    // Column lanes
+    // Lane backgrounds + dividers
     for (let c = 0; c < COLS; c++) {
       ctx2.fillStyle = c % 2 === 0 ? 'rgba(80,144,224,0.04)' : 'rgba(64,192,144,0.04)';
       ctx2.fillRect(c * COL_W, 0, COL_W, H);
@@ -445,7 +645,7 @@ const Game = (() => {
       ctx2.fillRect(c * COL_W, 0, 1, H);
     }
 
-    // Hit line glow
+    // Hit line
     ctx2.fillStyle = 'rgba(176,141,232,0.2)';
     ctx2.fillRect(0, HIT_Y - 1, W, 3);
     ctx2.fillStyle = 'rgba(176,141,232,0.6)';
@@ -453,36 +653,36 @@ const Game = (() => {
 
     // Hit zones
     for (let c = 0; c < COLS; c++) {
-      const x = c * COL_W + 4;
-      const w = COL_W - 8;
-      const col = colColors[c];
+      const x      = c * COL_W + 4;
+      const w      = COL_W - 8;
+      const col    = COL_CLR[c];
       const active = state.keyDown[c];
       ctx2.save();
       ctx2.globalAlpha = active ? 0.9 : 0.5;
       ctx2.strokeStyle = col;
-      ctx2.lineWidth = active ? 2 : 1;
-      ctx2.fillStyle = active ? col + '44' : col + '18';
+      ctx2.lineWidth   = active ? 2 : 1;
+      ctx2.fillStyle   = active ? col + '44' : col + '18';
       roundRect(ctx2, x, HIT_Y + 2, w, 26, 5);
       ctx2.fill(); ctx2.stroke();
       ctx2.restore();
-      ctx2.fillStyle = active ? '#fff' : col;
-      ctx2.font = `${active ? 700 : 500} 14px 'Share Tech Mono', monospace`;
-      ctx2.textAlign = 'center';
+      ctx2.fillStyle  = active ? '#fff' : col;
+      ctx2.font       = `${active ? 700 : 500} 14px 'Share Tech Mono', monospace`;
+      ctx2.textAlign  = 'center';
       ctx2.fillText(['D','F','J','K'][c], c * COL_W + COL_W / 2, HIT_Y + 20);
     }
 
     // Notes
     for (const n of state.notes) {
       if (n.hit || n.missed) continue;
-      const x = n.col * COL_W + 4;
-      const w = COL_W - 8;
-      const col = colColors[n.col];
+      const x   = n.col * COL_W + 4;
+      const w   = COL_W - 8;
+      const col = COL_CLR[n.col];
       ctx2.save();
-      ctx2.shadowBlur = 14;
+      ctx2.shadowBlur  = 14;
       ctx2.shadowColor = col;
-      ctx2.fillStyle = col;
+      ctx2.fillStyle   = col;
       ctx2.strokeStyle = 'rgba(255,255,255,0.6)';
-      ctx2.lineWidth = 1;
+      ctx2.lineWidth   = 1;
       roundRect(ctx2, x, n.y, w, NOTE_H, 6);
       ctx2.fill(); ctx2.stroke();
       ctx2.restore();
@@ -491,7 +691,7 @@ const Game = (() => {
     // Particles
     for (const p of state.particles) {
       ctx2.globalAlpha = Math.max(0, p.life / 25);
-      ctx2.fillStyle = p.color;
+      ctx2.fillStyle   = p.color;
       ctx2.beginPath();
       ctx2.arc(p.x, p.y, p.r || 3, 0, Math.PI * 2);
       ctx2.fill();
@@ -501,23 +701,22 @@ const Game = (() => {
 
   function roundRect(c, x, y, w, h, r) {
     c.beginPath();
-    c.moveTo(x+r, y);
-    c.lineTo(x+w-r, y);
-    c.quadraticCurveTo(x+w, y, x+w, y+r);
-    c.lineTo(x+w, y+h-r);
-    c.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
-    c.lineTo(x+r, y+h);
-    c.quadraticCurveTo(x, y+h, x, y+h-r);
-    c.lineTo(x, y+r);
-    c.quadraticCurveTo(x, y, x+r, y);
+    c.moveTo(x+r,y); c.lineTo(x+w-r,y);
+    c.quadraticCurveTo(x+w,y,x+w,y+r);
+    c.lineTo(x+w,y+h-r);
+    c.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+    c.lineTo(x+r,y+h);
+    c.quadraticCurveTo(x,y+h,x,y+h-r);
+    c.lineTo(x,y+r);
+    c.quadraticCurveTo(x,y,x+r,y);
     c.closePath();
   }
 
   // ---- JUDGMENT ----
   function showJudgment(text, color) {
-    const el = document.getElementById('judgment-overlay');
+    const el    = document.getElementById('judgment-overlay');
     el.textContent = text;
-    el.style.color = color;
+    el.style.color   = color;
     el.style.opacity = '1';
     state.judgmentTimer = 35;
   }
@@ -555,40 +754,40 @@ const Game = (() => {
     if (state.combo > state.maxCombo) state.maxCombo = state.combo;
 
     let pts, text, color;
-    if (bestDist < 22) { pts = 300; text = 'PERFECT'; color = '#f0c040'; state.cntPerfect++; }
-    else if (bestDist < 50) { pts = 200; text = 'GREAT'; color = '#b08de8'; state.cntGreat++; }
-    else { pts = 100; text = 'GOOD'; color = '#40d880'; state.cntGood++; }
+    if      (bestDist < 22) { pts = 300; text = 'PERFECT'; color = '#f0c040'; state.cntPerfect++; }
+    else if (bestDist < 50) { pts = 200; text = 'GREAT';   color = '#b08de8'; state.cntGreat++;   }
+    else                    { pts = 100; text = 'GOOD';    color = '#40d880'; state.cntGood++;    }
 
     state.score += pts * Math.max(1, state.combo);
     state.health = Math.min(100, state.health + 2);
-    spawnParticles(best.col * getColW() + getColW()/2, HIT_Y, color);
+    spawnParticles(best.col * getColW() + getColW() / 2, HIT_Y, color);
     showJudgment(text, color);
     updateGameUI();
   }
 
   function updateGameUI() {
-    document.getElementById('game-score').textContent = String(state.score).padStart(6, '0');
-    document.getElementById('game-combo').textContent = state.combo + 'x';
+    document.getElementById('game-score').textContent   = String(state.score).padStart(6, '0');
+    document.getElementById('game-combo').textContent   = state.combo + 'x';
     const acc = state.totalNotes > 0 ? ((state.hitNotes / state.totalNotes) * 100).toFixed(2) : '100.00';
-    document.getElementById('game-acc').textContent = acc + '%';
+    document.getElementById('game-acc').textContent     = acc + '%';
     const hw = Math.max(0, Math.min(100, state.health));
     const hf = document.getElementById('health-fill');
-    hf.style.width = hw + '%';
+    hf.style.width      = hw + '%';
     hf.style.background = state.health > 50 ? 'var(--green)' : state.health > 25 ? 'var(--gold)' : 'var(--red)';
-    document.getElementById('cnt-perfect').textContent = state.cntPerfect;
-    document.getElementById('cnt-great').textContent = state.cntGreat;
-    document.getElementById('cnt-good').textContent = state.cntGood;
-    document.getElementById('cnt-miss').textContent = state.cntMiss;
-    document.getElementById('mg-doki').style.width = Math.min(100, state.gauges.signal) + '%';
-    document.getElementById('mg-yun').style.width = Math.min(100, state.gauges.echo) + '%';
-    document.getElementById('mg-denpa').style.width = Math.min(100, state.gauges.static) + '%';
+    document.getElementById('cnt-perfect').textContent  = state.cntPerfect;
+    document.getElementById('cnt-great').textContent    = state.cntGreat;
+    document.getElementById('cnt-good').textContent     = state.cntGood;
+    document.getElementById('cnt-miss').textContent     = state.cntMiss;
+    document.getElementById('mg-doki').style.width      = Math.min(100, state.gauges.signal) + '%';
+    document.getElementById('mg-yun').style.width       = Math.min(100, state.gauges.echo) + '%';
+    document.getElementById('mg-denpa').style.width     = Math.min(100, state.gauges.static) + '%';
   }
 
   // ---- POST FEED ----
   function addPostFeedMsg() {
     const [user, msg] = POST_MSGS[Math.floor(Math.random() * POST_MSGS.length)];
     const feed = document.getElementById('post-feed');
-    const el = document.createElement('div');
+    const el   = document.createElement('div');
     el.className = 'post-item';
     el.innerHTML = `<div class="post-user">@${user}</div>${msg}`;
     feed.prepend(el);
@@ -601,34 +800,31 @@ const Game = (() => {
     stopAudio();
     cancelAnimationFrame(state.animId);
 
-    const acc = state.totalNotes > 0 ? (state.hitNotes / state.totalNotes) * 100 : 100;
+    const acc   = state.totalNotes > 0 ? (state.hitNotes / state.totalNotes) * 100 : 100;
     const grade = getGrade(acc, state.cntMiss);
-
     const staticGain = Math.round(acc / 10 * (state.cntMiss === 0 ? 1.5 : 1));
     state.gauges.static = Math.min(100, state.gauges.static + staticGain);
 
     const songName = state.selectedSong === 'user' ? state.userTrackName :
       SONGS.find(s => s.id === state.selectedSong)?.title || '—';
     state.records.unshift({
-      song: songName, score: state.score, acc: acc.toFixed(2),
-      grade, diff: state.selectedDiff,
-      perfect: state.cntPerfect, great: state.cntGreat,
-      good: state.cntGood, miss: state.cntMiss,
-      combo: state.maxCombo,
+      song: songName, score: state.score, acc: acc.toFixed(2), grade,
+      diff: state.selectedDiff, perfect: state.cntPerfect, great: state.cntGreat,
+      good: state.cntGood, miss: state.cntMiss, combo: state.maxCombo,
     });
     if (state.records.length > 20) state.records.pop();
     saveRecords();
 
-    document.getElementById('result-grade').textContent = grade;
-    document.getElementById('result-grade').className = 'result-grade ' + grade.toLowerCase();
-    document.getElementById('result-track').textContent = songName;
-    document.getElementById('rs-score').textContent = state.score.toLocaleString();
-    document.getElementById('rs-perfect').textContent = state.cntPerfect;
-    document.getElementById('rs-great').textContent = state.cntGreat;
-    document.getElementById('rs-good').textContent = state.cntGood;
-    document.getElementById('rs-miss').textContent = state.cntMiss;
-    document.getElementById('rs-combo').textContent = state.maxCombo;
-    document.getElementById('rs-acc').textContent = acc.toFixed(2) + '%';
+    document.getElementById('result-grade').textContent  = grade;
+    document.getElementById('result-grade').className    = 'result-grade ' + grade.toLowerCase();
+    document.getElementById('result-track').textContent  = songName;
+    document.getElementById('rs-score').textContent      = state.score.toLocaleString();
+    document.getElementById('rs-perfect').textContent    = state.cntPerfect;
+    document.getElementById('rs-great').textContent      = state.cntGreat;
+    document.getElementById('rs-good').textContent       = state.cntGood;
+    document.getElementById('rs-miss').textContent       = state.cntMiss;
+    document.getElementById('rs-combo').textContent      = state.maxCombo;
+    document.getElementById('rs-acc').textContent        = acc.toFixed(2) + '%';
     document.getElementById('result-denpa-gain').textContent = `+${staticGain}% STATIC CHARGED`;
 
     showScreen('screen-results');
@@ -648,22 +844,19 @@ const Game = (() => {
     document.getElementById('selected-count').textContent = '0';
     document.getElementById('post-btn').disabled = true;
 
-    const lastRecord = state.records[0];
-    if (lastRecord) {
-      document.getElementById('cards-summary').textContent =
-        `${lastRecord.song} — ${lastRecord.grade} · ${lastRecord.score.toLocaleString()} pts · ${lastRecord.acc}%`;
-    }
+    const last = state.records[0];
+    if (last) document.getElementById('cards-summary').textContent =
+      `${last.song} — ${last.grade} · ${last.score.toLocaleString()} pts · ${last.acc}%`;
 
-    const pool = [...CARDS_POOL].sort(() => Math.random() - 0.5);
+    const pool   = [...CARDS_POOL].sort(() => Math.random() - 0.5);
     const hasGold = pool.slice(0, 8).some(c => c.gold);
-    const cards = hasGold ? pool.slice(0, 8) : [CARDS_POOL.find(c => c.gold), ...pool.slice(0, 7)];
+    const cards  = hasGold ? pool.slice(0, 8) : [CARDS_POOL.find(c => c.gold), ...pool.slice(0, 7)];
 
     const grid = document.getElementById('cards-grid');
     grid.innerHTML = '';
-    cards.forEach((c, i) => {
+    cards.forEach((c) => {
       const el = document.createElement('div');
       el.className = 'card-item' + (c.gold ? ' gold' : '');
-      el.dataset.idx = i;
       el.innerHTML = `
         <div class="card-emoji">${c.emoji}</div>
         <div class="card-type ${c.tclass}">${c.type.toUpperCase()}</div>
@@ -692,22 +885,15 @@ const Game = (() => {
     state.selectedCards.forEach(c => {
       if (c.gold) {
         state.gauges.signal = Math.min(100, state.gauges.signal + c.gv);
-        state.gauges.echo = Math.min(100, state.gauges.echo + c.gv);
+        state.gauges.echo   = Math.min(100, state.gauges.echo   + c.gv);
         state.gauges.static = Math.min(100, state.gauges.static + c.gv);
-      } else if (c.type === 'signal') {
-        state.gauges.signal = Math.min(100, state.gauges.signal + c.gv);
-      } else if (c.type === 'echo') {
-        state.gauges.echo = Math.min(100, state.gauges.echo + c.gv);
-      } else {
-        state.gauges.static = Math.min(100, state.gauges.static + c.gv);
-      }
+      } else if (c.type === 'signal')    { state.gauges.signal = Math.min(100, state.gauges.signal + c.gv); }
+      else if   (c.type === 'echo')      { state.gauges.echo   = Math.min(100, state.gauges.echo   + c.gv); }
+      else                               { state.gauges.static = Math.min(100, state.gauges.static + c.gv); }
     });
     updateGaugeDisplay();
-    if (state.gauges.static >= 100) {
-      showWinScreen();
-    } else {
-      showScreen('screen-song-select');
-    }
+    if (state.gauges.static >= 100) showWinScreen();
+    else showScreen('screen-song-select');
   }
 
   function showWinScreen() {
@@ -736,16 +922,11 @@ const Game = (() => {
   }
 
   function gradeColor(g) {
-    const map = { S: 'var(--gold)', A: 'var(--purple-light)', B: 'var(--cyan)', C: 'var(--green)', D: 'var(--red)' };
-    return map[g] || 'var(--text)';
+    return { S:'var(--gold)', A:'var(--purple-light)', B:'var(--cyan)', C:'var(--green)', D:'var(--red)' }[g] || 'var(--text)';
   }
 
-  function saveRecords() {
-    try { localStorage.setItem('static_signal_records', JSON.stringify(state.records)); } catch(e){}
-  }
-  function loadRecords() {
-    try { state.records = JSON.parse(localStorage.getItem('static_signal_records') || '[]'); } catch(e){}
-  }
+  function saveRecords() { try { localStorage.setItem('static_signal_records', JSON.stringify(state.records)); } catch(e){} }
+  function loadRecords()  { try { state.records = JSON.parse(localStorage.getItem('static_signal_records') || '[]'); } catch(e){} }
 
   // ---- KEYBOARD ----
   document.addEventListener('keydown', (e) => {
@@ -760,7 +941,6 @@ const Game = (() => {
 
   // ---- INIT ----
   loadRecords();
-  // Do NOT call drawGame() here — canvas not visible yet
 
   return { showScreen, startGame, pauseGame, resumeGame, quitToMenu, submitPost };
 
