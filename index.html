@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>STATIC SIGNAL // Rhythm Transmission</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=M+PLUS+Rounded+1c:wght@400;700;800&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ========== SCREEN: TITLE ========== -->
+<div id="screen-title" class="screen active">
+  <div class="title-bg">
+    <div class="scanlines"></div>
+    <div class="noise"></div>
+  </div>
+  <div class="title-content">
+    <div class="title-glitch" data-text="STATIC SIGNAL">STATIC SIGNAL</div>
+    <div class="title-sub">// Rhythm Transmission //</div>
+    <div class="title-flavor">周波数を合わせろ ◈</div>
+    <div class="title-story-teaser">
+      <p>В тёмной комнате без окон живёт девочка по имени <span class="highlight">STATIC</span>.<br>
+      Она слушает радиошум. Она записывает помехи.<br>
+      Она передаёт сигнал дальше — в пустоту,<br>
+      которая, кажется, <em>отвечает</em>.</p>
+    </div>
+    <div class="title-buttons">
+      <button class="btn-main" onclick="Game.showScreen('screen-story-intro')">▶ НАЧАТЬ</button>
+      <button class="btn-sub" onclick="Game.showScreen('screen-how-to')">Как играть</button>
+      <button class="btn-sub" onclick="Game.showScreen('screen-records')">Рекорды</button>
+    </div>
+    <div class="title-keys">D &nbsp; F &nbsp; J &nbsp; K</div>
+  </div>
+</div>
+
+<!-- ========== SCREEN: HOW TO PLAY ========== -->
+<div id="screen-how-to" class="screen">
+  <div class="scanlines"></div>
+  <div class="how-wrap">
+    <h2 class="section-title">Как играть</h2>
+    <div class="how-grid">
+      <div class="how-card">
+        <div class="how-icon">🎵</div>
+        <h3>Загрузи музыку</h3>
+        <p>Нажми на зону загрузки и выбери любой MP3, OGG или WAV файл со своего устройства.</p>
+      </div>
+      <div class="how-card">
+        <div class="how-icon">⌨</div>
+        <h3>Нажимай в такт</h3>
+        <p>Ноты падают по 4 дорожкам. Нажимай <strong>D F J K</strong> когда нота достигает зоны удара.</p>
+      </div>
+      <div class="how-card">
+        <div class="how-icon">📻</div>
+        <h3>Держи сигнал</h3>
+        <p>PERFECT → GREAT → GOOD. Промахи сбрасывают комбо и снижают уровень сигнала.</p>
+      </div>
+      <div class="how-card">
+        <div class="how-icon">📡</div>
+        <h3>Заряжай трансляцию</h3>
+        <p>После каждой песни выбирай карточки постов. Заполни шкалу STATIC до 100%!</p>
+      </div>
+    </div>
+    <div class="how-keys">
+      <div class="key-demo k-blue">D</div>
+      <div class="key-demo k-green">F</div>
+      <div class="key-demo k-green">J</div>
+      <div class="key-demo k-blue">K</div>
+    </div>
+    <button class="btn-main" onclick="Game.showScreen('screen-title')">← Назад</button>
+  </div>
+</div>
+
+<!-- ========== SCREEN: STORY INTRO ========== -->
+<div id="screen-story-intro" class="screen">
+  <div class="scanlines"></div>
+  <div class="story-wrap">
+    <div class="dialogue-box" id="dialogue-box">
+      <div class="dialogue-char" id="dialogue-char">STATIC</div>
+      <div class="dialogue-text" id="dialogue-text"></div>
+      <div class="dialogue-next" id="dialogue-next">[ нажми пробел или кликни ]</div>
+    </div>
+    <div class="dialogue-portrait" id="dialogue-portrait">
+      <div class="portrait-frame">
+        <div class="portrait-char" id="portrait-img">📻</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== SCREEN: SONG SELECT ========== -->
+<div id="screen-song-select" class="screen">
+  <div class="scanlines"></div>
+  <div class="select-wrap">
+    <div class="select-top">
+      <h2 class="section-title">Выбери трек</h2>
+      <div class="gauges-mini">
+        <div class="gauge-item">
+          <span class="gauge-label">SIGNAL</span>
+          <div class="gauge-bar"><div class="gauge-fill g-pink" id="g-doki"></div></div>
+          <span class="gauge-pct" id="pct-doki">0%</span>
+        </div>
+        <div class="gauge-item">
+          <span class="gauge-label">ECHO</span>
+          <div class="gauge-bar"><div class="gauge-fill g-purple" id="g-yun"></div></div>
+          <span class="gauge-pct" id="pct-yun">0%</span>
+        </div>
+        <div class="gauge-item">
+          <span class="gauge-label">STATIC</span>
+          <div class="gauge-bar"><div class="gauge-fill g-cyan" id="g-denpa"></div></div>
+          <span class="gauge-pct" id="pct-denpa">0%</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="song-list" id="song-list"></div>
+
+    <div class="select-upload">
+      <label class="upload-zone" id="upload-zone">
+        <span class="upload-icon">📂</span>
+        <span>Загрузить свой трек</span>
+        <input type="file" id="file-input" accept="audio/*" style="display:none">
+      </label>
+    </div>
+
+    <div class="select-bottom">
+      <div class="diff-select">
+        <span>Сложность:</span>
+        <button class="diff-btn active" data-diff="normal">NORMAL</button>
+        <button class="diff-btn" data-diff="hardcore">HARDCORE</button>
+        <button class="diff-btn" data-diff="nolifer">NO-LIFER</button>
+      </div>
+      <button class="btn-main" id="play-btn" onclick="Game.startGame()">▶ ИГРАТЬ</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== SCREEN: GAME ========== -->
+<div id="screen-game" class="screen">
+  <div class="game-layout">
+    <!-- left panel -->
+    <div class="game-left">
+      <div class="game-track-name" id="game-track-name">—</div>
+      <div class="game-score-wrap">
+        <div class="game-score" id="game-score">000000</div>
+        <div class="game-combo" id="game-combo">0x</div>
+      </div>
+      <div class="game-acc" id="game-acc">100.00%</div>
+      <div class="health-wrap">
+        <div class="health-label">SIGNAL</div>
+        <div class="health-track">
+          <div class="health-fill" id="health-fill"></div>
+        </div>
+      </div>
+      <div class="game-gauges">
+        <div class="mini-gauge">
+          <div class="mini-label">SIG</div>
+          <div class="mini-bar"><div class="mini-fill mf-pink" id="mg-doki"></div></div>
+        </div>
+        <div class="mini-gauge">
+          <div class="mini-label">ECH</div>
+          <div class="mini-bar"><div class="mini-fill mf-purple" id="mg-yun"></div></div>
+        </div>
+        <div class="mini-gauge">
+          <div class="mini-label">STC</div>
+          <div class="mini-bar"><div class="mini-fill mf-cyan" id="mg-denpa"></div></div>
+        </div>
+      </div>
+      <button class="btn-tiny" onclick="Game.pauseGame()">⏸ ПАУЗА</button>
+    </div>
+
+    <!-- canvas -->
+    <div class="game-center">
+      <canvas id="game-canvas"></canvas>
+      <div class="judgment-overlay" id="judgment-overlay"></div>
+    </div>
+
+    <!-- right panel -->
+    <div class="game-right">
+      <div class="game-diff-label" id="game-diff-label">NORMAL</div>
+      <div class="speed-wrap">
+        <div class="speed-label">Скорость</div>
+        <input type="range" id="speed-slider" min="1" max="10" value="5" step="1">
+        <div class="speed-val" id="speed-val">5</div>
+      </div>
+      <div class="stats-wrap">
+        <div class="stat-row"><span>PERFECT</span><span id="cnt-perfect">0</span></div>
+        <div class="stat-row"><span>GREAT</span><span id="cnt-great">0</span></div>
+        <div class="stat-row"><span>GOOD</span><span id="cnt-good">0</span></div>
+        <div class="stat-row red"><span>MISS</span><span id="cnt-miss">0</span></div>
+      </div>
+      <div class="post-feed" id="post-feed"></div>
+    </div>
+  </div>
+
+  <!-- pause overlay -->
+  <div class="pause-overlay" id="pause-overlay" style="display:none">
+    <div class="pause-box">
+      <div class="pause-title">// ПАУЗА //</div>
+      <button class="btn-main" onclick="Game.resumeGame()">▶ Продолжить</button>
+      <button class="btn-sub" onclick="Game.quitToMenu()">✕ Выйти в меню</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== SCREEN: POST CARDS ========== -->
+<div id="screen-cards" class="screen">
+  <div class="scanlines"></div>
+  <div class="cards-wrap">
+    <h2 class="section-title">Опубликуй сигнал</h2>
+    <p class="cards-sub">Выбери 3 карточки для своего поста в эфир</p>
+    <div class="cards-result-summary" id="cards-summary"></div>
+    <div class="cards-grid" id="cards-grid"></div>
+    <div class="cards-selected" id="cards-selected">
+      <div class="selected-label">Выбрано: <span id="selected-count">0</span>/3</div>
+      <button class="btn-main" id="post-btn" onclick="Game.submitPost()" disabled>📡 ПЕРЕДАТЬ</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== SCREEN: RESULTS ========== -->
+<div id="screen-results" class="screen">
+  <div class="scanlines"></div>
+  <div class="results-wrap">
+    <div class="result-grade" id="result-grade">S</div>
+    <div class="result-track" id="result-track">—</div>
+    <div class="result-stats">
+      <div class="rs-row"><span>Score</span><span id="rs-score">0</span></div>
+      <div class="rs-row gold"><span>PERFECT</span><span id="rs-perfect">0</span></div>
+      <div class="rs-row purple"><span>GREAT</span><span id="rs-great">0</span></div>
+      <div class="rs-row green"><span>GOOD</span><span id="rs-good">0</span></div>
+      <div class="rs-row red"><span>MISS</span><span id="rs-miss">0</span></div>
+      <div class="rs-row"><span>Max Combo</span><span id="rs-combo">0</span></div>
+      <div class="rs-row"><span>Accuracy</span><span id="rs-acc">0%</span></div>
+    </div>
+    <div class="result-denpa-gain" id="result-denpa-gain"></div>
+    <div class="result-buttons">
+      <button class="btn-main" onclick="Game.showScreen('screen-cards')">📡 Пост</button>
+      <button class="btn-sub" onclick="Game.showScreen('screen-song-select')">↺ Ещё раз</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== SCREEN: RECORDS ========== -->
+<div id="screen-records" class="screen">
+  <div class="scanlines"></div>
+  <div class="records-wrap">
+    <h2 class="section-title">Рекорды</h2>
+    <div id="records-list"></div>
+    <button class="btn-main" onclick="Game.showScreen('screen-title')">← Назад</button>
+  </div>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
